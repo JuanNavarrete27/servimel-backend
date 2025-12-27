@@ -1,16 +1,28 @@
 // src/config/db.js
+// ============================================================
+// SERVIMEL — DB (Clever Cloud MySQL)
+// ✅ Usa variables nativas de Clever Cloud (MYSQL_ADDON_*)
+// ✅ Mantiene tu debug fuerte (placeholder mismatch + logs)
+// ✅ timezone UTC ('Z')
+// ============================================================
+
 const mysql = require('mysql2/promise');
 const { env } = require('./env');
 
 const pool = mysql.createPool({
-  host: env('DB_HOST'),
-  user: env('DB_USER'),
-  password: env('DB_PASSWORD'),
-  database: env('DB_NAME'),
-  port: Number(env('DB_PORT', 3306)),
+  // Clever Cloud
+  host: env('MYSQL_ADDON_HOST', env('DB_HOST')),
+  user: env('MYSQL_ADDON_USER', env('DB_USER')),
+  password: env('MYSQL_ADDON_PASSWORD', env('DB_PASSWORD')),
+  database: env('MYSQL_ADDON_DB', env('DB_NAME')),
+  port: Number(env('MYSQL_ADDON_PORT', env('DB_PORT', 3306))),
+
+  // Pool settings
   waitForConnections: true,
   connectionLimit: Number(env('DB_CONN_LIMIT', 10)),
   queueLimit: 0,
+
+  // UTC
   timezone: 'Z'
 });
 
@@ -67,7 +79,12 @@ async function tx(fn) {
       const safeParams = normalizeParams(params);
       const expected = countPlaceholders(sql);
       if (expected !== safeParams.length) {
-        console.error('[DB:TX] Placeholder mismatch', { expected, got: safeParams.length, sql, params: safeParams });
+        console.error('[DB:TX] Placeholder mismatch', {
+          expected,
+          got: safeParams.length,
+          sql,
+          params: safeParams
+        });
         throw new Error(`DB_PLACEHOLDER_MISMATCH expected=${expected} got=${safeParams.length}`);
       }
       const [rows] = await conn.query(sql, safeParams);
