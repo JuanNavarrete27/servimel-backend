@@ -1,31 +1,42 @@
 // src/config/db.js
 // ============================================================
-// SERVIMEL — DB (Clever Cloud MySQL)
-// ✅ Usa variables nativas de Clever Cloud (MYSQL_ADDON_*)
+// SERVIMEL — DB (Render -> Clever Cloud MySQL)
+// ✅ En Render cargás MYSQL_ADDON_* (Clever Cloud credentials)
 // ✅ Mantiene tu debug fuerte (placeholder mismatch + logs)
 // ✅ timezone UTC ('Z')
+// ✅ Soporta fallback DB_* por si querés correr local
 // ============================================================
 
 const mysql = require('mysql2/promise');
 const { env } = require('./env');
 
-const pool = mysql.createPool({
-  // Clever Cloud
-  host: env('MYSQL_ADDON_HOST', env('DB_HOST')),
-  user: env('MYSQL_ADDON_USER', env('DB_USER')),
-  password: env('MYSQL_ADDON_PASSWORD', env('DB_PASSWORD')),
-  database: env('MYSQL_ADDON_DB', env('DB_NAME')),
-  port: Number(env('MYSQL_ADDON_PORT', env('DB_PORT', 3306))),
+// Helpers: elegimos MYSQL_ADDON_* primero (porque en Render los seteaste así),
+// y si no existen, caemos a DB_* (para local/dev).
+const DB_HOST = env('MYSQL_ADDON_HOST', env('DB_HOST'));
+const DB_USER = env('MYSQL_ADDON_USER', env('DB_USER'));
+const DB_PASSWORD = env('MYSQL_ADDON_PASSWORD', env('DB_PASSWORD'));
+const DB_NAME = env('MYSQL_ADDON_DB', env('DB_NAME'));
+const DB_PORT = Number(env('MYSQL_ADDON_PORT', env('DB_PORT', 3306)));
 
-  // Pool settings
+const pool = mysql.createPool({
+  host: DB_HOST,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
+  port: DB_PORT,
+
   waitForConnections: true,
   connectionLimit: Number(env('DB_CONN_LIMIT', 10)),
   queueLimit: 0,
 
-  // UTC
-  timezone: 'Z'
+  timezone: 'Z',
+  // Recomendado para MySQL8 / utf8mb4
+  charset: 'utf8mb4',
 });
 
+// -------------------------
+// Safe params
+// -------------------------
 function normalizeParams(params) {
   if (!params) return [];
   if (!Array.isArray(params)) return []; // <- si por error llega objeto, no rompas
@@ -51,12 +62,11 @@ async function query(sql, params = []) {
       sql,
       params: safeParams
     });
-    // Tiramos error claro (en vez de ER_WRONG_ARGUMENTS)
     throw new Error(`DB_PLACEHOLDER_MISMATCH expected=${expected} got=${safeParams.length}`);
   }
 
   try {
-    // ✅ USAR query() (text protocol) evita mysqld_stmt_execute
+    // ✅ query() (text protocol) evita mysqld_stmt_execute
     const [rows] = await pool.query(sql, safeParams);
     return rows;
   } catch (err) {
