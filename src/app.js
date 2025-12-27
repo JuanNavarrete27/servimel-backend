@@ -4,7 +4,7 @@ const morgan = require('morgan');
 const { env, requireEnv } = require('./config/env');
 const { fail } = require('./utils/responses');
 const { errorHandler } = require('./middlewares/errorHandler');
-const { authRequired } = require('./middlewares/auth'); // ✅ ADD: proteger dashboard
+const { authRequired } = require('./middlewares/auth');
 
 // routes
 const authRoutes = require('./modules/auth/auth.routes');
@@ -29,37 +29,58 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use(morgan('dev'));
 
-// ✅ CORS robusto: soporta 1 o muchos orígenes (separados por coma)
-// Ej: CORS_ORIGIN="http://localhost:4200,https://servimel.uy"
-const rawOrigin = env('CORS_ORIGIN', 'http://localhost:4200');
+// ============================================================
+// ✅ CORS PRO (Render backend -> Netlify frontend)
+// - Allowlist por ENV (CORS_ORIGIN) o defaults seguros
+// - Permite previews de Netlify (*.netlify.app)
+// - Preflight SIEMPRE usa las mismas options (evita 500 en OPTIONS)
+// ============================================================
+
+// ✅ Frontend actual:
+const DEFAULT_ALLOWED = [
+  'http://localhost:4200',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://servimelmvp.netlify.app',
+];
+
+// Ej: CORS_ORIGIN="https://servimelmvp.netlify.app,https://tudominio.com"
+const rawOrigin = env('CORS_ORIGIN', DEFAULT_ALLOWED.join(','));
+
 const allowList = String(rawOrigin)
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Permite requests sin Origin (Postman, curl, server-to-server)
-      if (!origin) return cb(null, true);
+// ✅ Permitir branch deploys / previews de netlify
+const NETLIFY_PREVIEW_REGEX = /^https:\/\/.*\.netlify\.app$/;
 
-      // Si allowList quedó vacío por config, permite igual en dev
-      if (!allowList.length) return cb(null, true);
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Requests sin Origin (Postman/curl/health checks)
+    if (!origin) return cb(null, true);
 
-      if (allowList.includes(origin)) return cb(null, true);
+    // Allowlist exacta
+    if (allowList.includes(origin)) return cb(null, true);
 
-      // Deniega si no está permitido
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  })
-);
+    // ✅ Netlify preview
+    if (NETLIFY_PREVIEW_REGEX.test(origin)) return cb(null, true);
 
-// ✅ Preflight explícito (evita 404 raros con OPTIONS)
-app.options('*', cors());
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
 
+// ✅ CORS antes de rutas
+app.use(cors(corsOptions));
+
+// ✅ Preflight explícito con MISMAS options (clave)
+app.options('*', cors(corsOptions));
+
+// Health
 app.get('/health', (req, res) => res.json({ ok: true, data: { status: 'up' } }));
 
 // Routes
@@ -71,7 +92,7 @@ app.use('/historial', historialRoutes);
 app.use('/auditoria', auditoriaRoutes);
 app.use('/settings', settingsRoutes);
 
-// ✅ FIX: dashboard protegido (antes se podía pegar sin token)
+// ✅ dashboard protegido
 app.use('/dashboard', authRequired, dashboardRoutes);
 
 // 404
