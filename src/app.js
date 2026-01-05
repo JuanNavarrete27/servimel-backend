@@ -15,6 +15,7 @@ const historialRoutes = require('./modules/historial/historial.routes');
 const auditoriaRoutes = require('./modules/auditoria/auditoria.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
+const serviciosRoutes = require('./modules/servicios/servicios.routes');
 
 requireEnv();
 
@@ -94,6 +95,7 @@ app.use('/settings', settingsRoutes);
 
 // ✅ dashboard protegido
 app.use('/dashboard', authRequired, dashboardRoutes);
+app.use('/servicios', serviciosRoutes);
 
 // 404
 app.use((req, res) => fail(res, 'NOT_FOUND', 'Route not found', 404));
