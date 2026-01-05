@@ -210,3 +210,100 @@ CREATE TABLE IF NOT EXISTS audits (
     ON DELETE SET NULL
     ON UPDATE CASCADE
 ) ENGINE=InnoDB;
+
+-- =========================
+-- SERVICE CATEGORIES & ITEMS
+-- =========================
+CREATE TABLE IF NOT EXISTS service_categories (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  slug VARCHAR(120) NOT NULL,
+  name VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_categories_slug (slug),
+  KEY idx_service_categories_active (is_active)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS service_items (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  category_id BIGINT UNSIGNED NOT NULL,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  content TEXT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_service_items_category FOREIGN KEY (category_id) REFERENCES service_categories(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE,
+  UNIQUE KEY uq_service_items_category_title (category_id, title),
+  KEY idx_service_items_category_active (category_id, is_active),
+  KEY idx_service_items_created (created_at)
+) ENGINE=InnoDB;
+
+-- Seed base categories (idempotent)
+INSERT INTO service_categories (slug, name, description, is_active) VALUES
+  ('medicina-general', 'Medicina General', 'Consultas y seguimiento clínico integral.', 1),
+  ('yoga', 'Yoga', 'Sesiones guiadas de yoga enfocadas en bienestar y movilidad.', 1),
+  ('fisioterapia', 'Fisioterapia', 'Tratamientos de fisioterapia y rehabilitación.', 1),
+  ('cocina', 'Cocina', 'Talleres y actividades gastronómicas.', 1),
+  ('ed-fisica', 'Educación Física', 'Rutinas de ejercicio y acondicionamiento físico.', 1)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  description = VALUES(description),
+  is_active = VALUES(is_active);
+
+-- Seed sample items per category (idempotent, keeps titles unique per category)
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Evaluación inicial', 'Consulta de ingreso y evaluación clínica.', 'Incluye anamnesis y revisión general para planificar cuidados.', 1
+FROM service_categories WHERE slug = 'medicina-general'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Seguimiento mensual', 'Control de signos vitales y ajuste de indicaciones.', 'Revisión periódica para seguimiento de salud.', 1
+FROM service_categories WHERE slug = 'medicina-general'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Yoga suave', 'Sesión de movilidad y respiración.', 'Clase grupal centrada en respiración y estiramientos.', 1
+FROM service_categories WHERE slug = 'yoga'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Yoga en silla', 'Adaptado para personas con movilidad reducida.', 'Posturas asistidas y trabajo de flexibilidad.', 1
+FROM service_categories WHERE slug = 'yoga'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Rehabilitación de movilidad', 'Ejercicios para recuperar fuerza y rango de movimiento.', 'Plan personalizado según indicación médica.', 1
+FROM service_categories WHERE slug = 'fisioterapia'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Electroterapia', 'Sesiones de electroestimulación controlada.', 'Uso supervisado para manejo de dolor y fortalecimiento.', 1
+FROM service_categories WHERE slug = 'fisioterapia'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Taller de cocina saludable', 'Recetas equilibradas y fáciles.', 'Preparaciones prácticas con enfoque nutritivo.', 1
+FROM service_categories WHERE slug = 'cocina'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Repostería simple', 'Postres caseros con bajo contenido de azúcar.', 'Actividades grupales supervisadas.', 1
+FROM service_categories WHERE slug = 'cocina'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Gimnasia funcional', 'Rutinas cortas para fuerza y equilibrio.', 'Ejercicios con propio peso y bandas elásticas.', 1
+FROM service_categories WHERE slug = 'ed-fisica'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
+
+INSERT INTO service_items (category_id, title, description, content, is_active)
+SELECT id, 'Caminata asistida', 'Circuito guiado al aire libre o en pasillos.', 'Incluye entrada en calor y vuelta a la calma.', 1
+FROM service_categories WHERE slug = 'ed-fisica'
+ON DUPLICATE KEY UPDATE description = VALUES(description), content = VALUES(content), is_active = VALUES(is_active);
