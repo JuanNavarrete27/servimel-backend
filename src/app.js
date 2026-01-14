@@ -21,15 +21,12 @@ const serviciosRoutes = require('./modules/servicios/servicios.routes');
 
 // ============================================================
 // ✅ ENV guard (compat DB_* y/o MYSQL_ADDON_*)
-// - tu env.js ya soporta ambos sets, pero mantenemos compat
-//   para no romper deploys raros / variables incompletas.
 // ============================================================
 function requireEnvCompat() {
   try {
     requireEnv();
     return;
   } catch (_) {
-    // fallback: aceptar MYSQL_ADDON_* si están
     const missing = [];
 
     const hasDbHost = !!process.env.DB_HOST || !!process.env.MYSQL_ADDON_HOST;
@@ -68,9 +65,6 @@ app.use(morgan('dev'));
 
 // ============================================================
 // ✅ CORS PRO
-// - Allowlist por ENV (CORS_ORIGIN) o defaults seguros
-// - Permite previews de Netlify (*.netlify.app)
-// - Preflight SIEMPRE usa las mismas options
 // ============================================================
 
 const DEFAULT_ALLOWED = [
@@ -80,7 +74,6 @@ const DEFAULT_ALLOWED = [
   'https://servimelmvp.netlify.app',
 ];
 
-// Ej: CORS_ORIGIN="https://servimelmvp.netlify.app,https://tudominio.com"
 const rawOrigin = env('CORS_ORIGIN', DEFAULT_ALLOWED.join(','));
 
 const allowList = String(rawOrigin)
@@ -92,12 +85,9 @@ const NETLIFY_PREVIEW_REGEX = /^https:\/\/.*\.netlify\.app$/;
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // Requests sin Origin (Postman/curl/health checks)
     if (!origin) return cb(null, true);
-
     if (allowList.includes(origin)) return cb(null, true);
     if (NETLIFY_PREVIEW_REGEX.test(origin)) return cb(null, true);
-
     return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
@@ -113,8 +103,7 @@ app.options('*', cors(corsOptions));
 app.get('/health', (req, res) => res.json({ ok: true, data: { status: 'up' } }));
 
 // ============================================================
-// Helpers: montar rutas nuevas sin romper si aún no existe el módulo
-// (si los archivos ya están, se montan normalmente)
+// Helpers: optionalRequire + safeMount
 // ============================================================
 function optionalRequire(path) {
   try {
@@ -126,7 +115,7 @@ function optionalRequire(path) {
       console.warn(`[ROUTES] Optional module not found: ${path}`);
       return null;
     }
-    throw e; // otros errores sí los queremos ver
+    throw e;
   }
 }
 
@@ -146,32 +135,25 @@ app.use('/historial', historialRoutes);
 app.use('/auditoria', auditoriaRoutes);
 app.use('/settings', settingsRoutes);
 
-// ✅ dashboard protegido (ya está con authRequired adentro, pero lo dejamos doble-safe acá también)
+// dashboard protegido
 app.use('/dashboard', authRequired, dashboardRoutes);
 
-// ✅ servicios: NO público (evita “mock”/leaks). Roles finos van en servicios.routes.js
+// servicios protegido
 app.use('/servicios', authRequired, serviciosRoutes);
 
 // ============================================================
-// ✅ NUEVOS MÓDULOS CLÍNICOS (5 paths nuevos integrados)
-// Mantienen EXACTO el contrato de endpoints que definiste.
-// - Medicina General: /medicina-general/...
-// - Cocina:          /api/cocina/...
-// - Ed-Física:       /api/ed-fisica/...
-// - Fisioterapia:    /fisioterapia/...
-// - Yoga:            /yoga/...
-//
-// OJO: cada módulo debe tener su propio control de roles dentro
-// de su *.routes.js (recomendado), acá solo hacemos authRequired.
+// ✅ NUEVOS MÓDULOS CLÍNICOS
 // ============================================================
 
-const medicinaGeneralRoutes = optionalRequire('./modules/medicina-general/medicina-general.routes');
+// ✅ CORREGIDO: apunta a medicinaGeneral.routes.js (camelCase)
+const medicinaGeneralRoutes = optionalRequire('./modules/medicina-general/medicinaGeneral.routes');
+
 const cocinaRoutes = optionalRequire('./modules/cocina/cocina.routes');
 const edFisicaRoutes = optionalRequire('./modules/ed-fisica/ed-fisica.routes');
 const fisioterapiaRoutes = optionalRequire('./modules/fisioterapia/fisioterapia.routes');
 const yogaRoutes = optionalRequire('./modules/yoga/yoga.routes');
 
-// 🔥 Montajes (preservan los prefijos tal cual tu spec)
+// Montajes
 safeMount('/medicina-general', medicinaGeneralRoutes);
 safeMount('/api/cocina', cocinaRoutes);
 safeMount('/api/ed-fisica', edFisicaRoutes);
