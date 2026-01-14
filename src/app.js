@@ -1,3 +1,5 @@
+// src/app.js
+
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -6,7 +8,7 @@ const { fail } = require('./utils/responses');
 const { errorHandler } = require('./middlewares/errorHandler');
 const { authRequired } = require('./middlewares/auth');
 
-// routes
+// routes (existentes)
 const authRoutes = require('./modules/auth/auth.routes');
 const usersRoutes = require('./modules/users/users.routes');
 const residentesRoutes = require('./modules/residentes/residentes.routes');
@@ -17,11 +19,45 @@ const settingsRoutes = require('./modules/settings/settings.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const serviciosRoutes = require('./modules/servicios/servicios.routes');
 
-requireEnv();
+// ============================================================
+// ✅ ENV guard (compat DB_* y/o MYSQL_ADDON_*)
+// - tu env.js ya soporta ambos sets, pero mantenemos compat
+//   para no romper deploys raros / variables incompletas.
+// ============================================================
+function requireEnvCompat() {
+  try {
+    requireEnv();
+    return;
+  } catch (_) {
+    // fallback: aceptar MYSQL_ADDON_* si están
+    const missing = [];
+
+    const hasDbHost = !!process.env.DB_HOST || !!process.env.MYSQL_ADDON_HOST;
+    const hasDbUser = !!process.env.DB_USER || !!process.env.MYSQL_ADDON_USER;
+    const hasDbPass = !!process.env.DB_PASSWORD || !!process.env.MYSQL_ADDON_PASSWORD;
+    const hasDbName = !!process.env.DB_NAME || !!process.env.MYSQL_ADDON_DB;
+
+    if (!hasDbHost) missing.push('DB_HOST|MYSQL_ADDON_HOST');
+    if (!hasDbUser) missing.push('DB_USER|MYSQL_ADDON_USER');
+    if (!hasDbPass) missing.push('DB_PASSWORD|MYSQL_ADDON_PASSWORD');
+    if (!hasDbName) missing.push('DB_NAME|MYSQL_ADDON_DB');
+
+    if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+    if (!process.env.CORS_ORIGIN) missing.push('CORS_ORIGIN');
+
+    if (missing.length) {
+      // eslint-disable-next-line no-console
+      console.error('[ENV] Missing required env vars:', missing.join(', '));
+      throw new Error(`Missing env vars: ${missing.join(', ')}`);
+    }
+  }
+}
+
+requireEnvCompat();
 
 const app = express();
 
-// ✅ si estás detrás de proxy (Render/VPS/Cloudflare/Nginx) y usás cookies/jwt httpOnly:
+// ✅ si estás detrás de proxy (Render/VPS/Cloudflare/Nginx)
 app.set('trust proxy', 1);
 
 // Body parsers
@@ -31,13 +67,12 @@ app.use(express.urlencoded({ extended: false }));
 app.use(morgan('dev'));
 
 // ============================================================
-// ✅ CORS PRO (Render backend -> Netlify frontend)
+// ✅ CORS PRO
 // - Allowlist por ENV (CORS_ORIGIN) o defaults seguros
 // - Permite previews de Netlify (*.netlify.app)
-// - Preflight SIEMPRE usa las mismas options (evita 500 en OPTIONS)
+// - Preflight SIEMPRE usa las mismas options
 // ============================================================
 
-// ✅ Frontend actual:
 const DEFAULT_ALLOWED = [
   'http://localhost:4200',
   'http://localhost:5173',
@@ -53,7 +88,6 @@ const allowList = String(rawOrigin)
   .map((s) => s.trim())
   .filter(Boolean);
 
-// ✅ Permitir branch deploys / previews de netlify
 const NETLIFY_PREVIEW_REGEX = /^https:\/\/.*\.netlify\.app$/;
 
 const corsOptions = {
@@ -61,10 +95,7 @@ const corsOptions = {
     // Requests sin Origin (Postman/curl/health checks)
     if (!origin) return cb(null, true);
 
-    // Allowlist exacta
     if (allowList.includes(origin)) return cb(null, true);
-
-    // ✅ Netlify preview
     if (NETLIFY_PREVIEW_REGEX.test(origin)) return cb(null, true);
 
     return cb(new Error(`CORS blocked for origin: ${origin}`));
@@ -75,16 +106,38 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// ✅ CORS antes de rutas
 app.use(cors(corsOptions));
-
-// ✅ Preflight explícito con MISMAS options (clave)
 app.options('*', cors(corsOptions));
 
 // Health
 app.get('/health', (req, res) => res.json({ ok: true, data: { status: 'up' } }));
 
-// Routes
+// ============================================================
+// Helpers: montar rutas nuevas sin romper si aún no existe el módulo
+// (si los archivos ya están, se montan normalmente)
+// ============================================================
+function optionalRequire(path) {
+  try {
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    return require(path);
+  } catch (e) {
+    if (e && e.code === 'MODULE_NOT_FOUND') {
+      // eslint-disable-next-line no-console
+      console.warn(`[ROUTES] Optional module not found: ${path}`);
+      return null;
+    }
+    throw e; // otros errores sí los queremos ver
+  }
+}
+
+function safeMount(basePath, router) {
+  if (!router) return;
+  app.use(basePath, authRequired, router);
+  // eslint-disable-next-line no-console
+  console.log(`[ROUTES] Mounted ${basePath}`);
+}
+
+// Routes (existentes)
 app.use('/auth', authRoutes);
 app.use('/users', usersRoutes);
 app.use('/residentes', residentesRoutes);
@@ -93,13 +146,42 @@ app.use('/historial', historialRoutes);
 app.use('/auditoria', auditoriaRoutes);
 app.use('/settings', settingsRoutes);
 
-// ✅ dashboard protegido
+// ✅ dashboard protegido (ya está con authRequired adentro, pero lo dejamos doble-safe acá también)
 app.use('/dashboard', authRequired, dashboardRoutes);
-app.use('/servicios', serviciosRoutes);
+
+// ✅ servicios: NO público (evita “mock”/leaks). Roles finos van en servicios.routes.js
+app.use('/servicios', authRequired, serviciosRoutes);
+
+// ============================================================
+// ✅ NUEVOS MÓDULOS CLÍNICOS (5 paths nuevos integrados)
+// Mantienen EXACTO el contrato de endpoints que definiste.
+// - Medicina General: /medicina-general/...
+// - Cocina:          /api/cocina/...
+// - Ed-Física:       /api/ed-fisica/...
+// - Fisioterapia:    /fisioterapia/...
+// - Yoga:            /yoga/...
+//
+// OJO: cada módulo debe tener su propio control de roles dentro
+// de su *.routes.js (recomendado), acá solo hacemos authRequired.
+// ============================================================
+
+const medicinaGeneralRoutes = optionalRequire('./modules/medicina-general/medicina-general.routes');
+const cocinaRoutes = optionalRequire('./modules/cocina/cocina.routes');
+const edFisicaRoutes = optionalRequire('./modules/ed-fisica/ed-fisica.routes');
+const fisioterapiaRoutes = optionalRequire('./modules/fisioterapia/fisioterapia.routes');
+const yogaRoutes = optionalRequire('./modules/yoga/yoga.routes');
+
+// 🔥 Montajes (preservan los prefijos tal cual tu spec)
+safeMount('/medicina-general', medicinaGeneralRoutes);
+safeMount('/api/cocina', cocinaRoutes);
+safeMount('/api/ed-fisica', edFisicaRoutes);
+safeMount('/fisioterapia', fisioterapiaRoutes);
+safeMount('/yoga', yogaRoutes);
 
 // 404
 app.use((req, res) => fail(res, 'NOT_FOUND', 'Route not found', 404));
 
+// Error handler
 app.use(errorHandler);
 
 module.exports = { app };
